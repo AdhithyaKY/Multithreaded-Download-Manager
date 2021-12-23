@@ -1,4 +1,4 @@
-import getopt, sys, requests, re
+import getopt, sys, requests, re, threading, time
 
 #retrieve header from the response object
 def retrieveHeader(url):
@@ -28,7 +28,22 @@ def checkIfDownloadable(url):
 
     return True
 
+def downloadChunk(url, start, end, filename):
+    print(start)
+    print(end)
+    #header to pass in with get request containing the start and end byte of chunk
+    headers = {'Range': 'bytes=%d-%d' % (int(start), int(end))}
+
+    r = requests.get(url, headers=headers, stream=True)
+
+    with open(filename, "r+b") as f:
+        f.seek(int(start))
+        currPosition = f.tell()
+        f.write(r.content)
+
 def main():
+    startTime = time.time()
+
     #remove 1st argument from list of command line arguments
     listOfArguments = sys.argv[1:]
 
@@ -46,8 +61,38 @@ def main():
     except getopt.error as error:
         print(str(error))
 
-    print(checkIfDownloadable(url))
-    print(retrieveHeader(url))
-    print(retrieveFilename(url))
+    isDownloadable = checkIfDownloadable(url)
+    header = retrieveHeader(url)
+    filename = retrieveFilename(url)
+    fileSize = int(header.get('content-length'))
+    if not fileSize:
+        print("URL does not support content-length in header.")
+        return
+    
+    if not filename:
+        filename = "DownloadedFile"
+
+    print(header)
+    print(fileSize)
+    chunkSize = int(fileSize) / 3
+    outputFile = open(filename, "wb")
+    outputFile.close()
+
+    for i in range(3):
+        start = chunkSize * i
+        end = start + chunkSize
+
+        thread = threading.Thread(target=downloadChunk, args=(url, start, end, filename))
+        thread.start()
+
+    mainThread = threading.current_thread()
+
+    for thread in threading.enumerate():
+        if thread is mainThread:
+            continue
+        thread.join()
+
+    print("Downloaded " + url)
+    print(time.time()-startTime)
 
 main()
